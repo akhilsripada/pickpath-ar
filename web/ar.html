@@ -39,6 +39,66 @@
 import * as THREE from "three";
 import { ARButton } from "three/addons/webxr/ARButton.js";
 
+// ---------------------------------------------------------------- iPhone / iPad: AR Quick Look
+// Safari has no WebXR AR, but iOS has its own AR viewer (Quick Look) that opens USDZ models.
+// "View in your room" exports a snapshot of the current scene to USDZ and hands it to Quick Look.
+// USDZ only carries meshes with standard materials, so lights, lines and sprites are converted first.
+const canQuickLook = (() => { try { return document.createElement("a").relList.supports("ar"); } catch { return false; } })();
+function quickLookSafe(root) {
+  const out = root.clone(true), drop = [], sprites = [];
+  out.traverse((o) => {
+    if (o.isLight || o.isLine || o.isPoints) drop.push(o);
+    else if (o.isSprite) sprites.push(o);
+    else if (o.isMesh && !o.material.isMeshStandardMaterial) {
+      const m = o.material, c = m.color ? m.color.clone() : new THREE.Color(0xffffff);
+      o.material = new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.6, map: m.map || null,
+        transparent: !!m.transparent, opacity: m.opacity ?? 1, side: m.side });
+    }
+  });
+  for (const s of sprites) {             // labels become flat signs facing the viewer
+    const map = s.material.map;
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ map, emissive: 0xffffff, emissiveMap: map, transparent: true }));
+    sign.position.copy(s.position); sign.scale.set(s.scale.x, s.scale.y, 1);
+    s.parent.add(sign); drop.push(s);
+  }
+  drop.forEach((o) => o.parent && o.parent.remove(o));
+  return out;
+}
+async function exportUSDZ(model) {
+  const { USDZExporter } = await import("three/addons/exporters/USDZExporter.js");
+  const exporter = new USDZExporter();
+  // three.js has had both a promise-returning parse() and a callback parse() + parseAsync(); support either.
+  return exporter.parseAsync ? exporter.parseAsync(model)
+    : new Promise((resolve, reject) => { const r = exporter.parse(model, resolve, reject); if (r && r.then) r.then(resolve, reject); });
+}
+async function openQuickLook(model, name) {
+  const data = await exportUSDZ(model);
+  const url = URL.createObjectURL(new Blob([data], { type: "model/vnd.usdz+zip" }));
+  const a = document.createElement("a");
+  a.rel = "ar"; a.href = url; a.download = name + ".usdz";
+  a.appendChild(document.createElement("img"));      // Quick Look only opens links that contain an image
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 120000);
+}
+function quickLookButton(label, makeModel, name) {
+  const b = document.createElement("button");
+  b.textContent = label; b.className = "ql";
+  b.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom));z-index:3;" +
+    "font:600 15px system-ui,sans-serif;padding:12px 18px;border-radius:99px;border:0;background:#fff;color:#111;box-shadow:0 4px 16px rgba(0,0,0,.35);cursor:pointer";
+  b.hidden = !canQuickLook;
+  b.addEventListener("click", async () => {
+    b.disabled = true; const t = b.textContent; b.textContent = "Preparing 3D model…";
+    try { await openQuickLook(makeModel(), name); } catch (e) { b.textContent = "Couldn't build the model"; console.error(e); setTimeout(() => { b.textContent = t; }, 2500); return; }
+    finally { b.disabled = false; }
+    b.textContent = t;
+  });
+  document.body.appendChild(b);
+  // for automated checks: build the USDZ and report its size and contents without opening anything
+  window.__usdzCheck = async () => { const d = await exportUSDZ(makeModel()); const head = String.fromCharCode(d[0], d[1]);
+    return { bytes: d.length, zip: head === "PK", hasUsda: new TextDecoder().decode(d.slice(0, 400)).includes(".usda") }; };
+  if (canQuickLook) { const how = document.getElementById("how") || document.getElementById("mode"); if (how) how.insertAdjacentHTML("beforeend", "<br>On iPhone, tap <b>View in your room</b> for a 3D snapshot in your camera."); }
+}
+
 // ---------------------------------------------------------------- route data
 // Live from the PickPath server, or a built-in route when opened on its own (e.g. GitHub Pages).
 const SAMPLE = { order: { id: "4417", item: "USB-C hub", aisle: "C", bay: 12, level: 3, side: "right" },
@@ -170,6 +230,23 @@ renderer.xr.addEventListener("sessionstart", async () => {
   });
 });
 renderer.xr.addEventListener("sessionend", () => { hitSource = null; warehouse.visible = true; world.visible = true; world.position.set(0, 0, 0); world.rotation.set(0, 0, 0); });
+
+
+// iPhone model: a 1:80 tabletop warehouse with the route, its arrows and the destination shelf.
+function warehouseModel() {
+  const g = quickLookSafe(world);
+  g.position.set(0, 0, 0); g.rotation.set(0, 0, 0); g.traverse((o) => { o.visible = true; });
+  if (routePts.length > 1) {
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(routePts.map((p) => p.clone().setY(0.05)), false, "catmullrom", 0), 128, 0.12, 8),
+      new THREE.MeshStandardMaterial({ color: ORANGE, emissive: ORANGE, emissiveIntensity: 0.7 }));
+    g.add(tube);
+  }
+  const you = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 1.7, 20), new THREE.MeshStandardMaterial({ color: 0x39c4b5, emissive: 0x39c4b5, emissiveIntensity: 0.5 }));
+  you.position.set(0, 0.85, 0); g.add(you);
+  const root = new THREE.Group(); g.scale.setScalar(1 / 80); root.add(g);
+  return root;
+}
+quickLookButton("View in your room", warehouseModel, "pickpath-route-" + (nav.order?.id || "4417"));
 
 let last = performance.now();
 renderer.setAnimationLoop((t, frame) => {
