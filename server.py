@@ -113,16 +113,21 @@ def make_handler(floor: Floor, copilot: Copilot):
                     return self._json(200, nav) if nav else self._json(404, {"error": "no such order"})
             self._json(404, {"error": "not found"})
 
+        def _body(self) -> bytes:
+            # Always consume the request body: with keep-alive, unread bytes would corrupt the next request.
+            n = int(self.headers.get("Content-Length", 0) or 0)
+            return self.rfile.read(min(n, 4096)) if n else b""
+
         def do_POST(self):
             path = urlparse(self.path).path
+            raw = self._body()
             if path == "/api/reroute":
                 with floor.lock:
                     out = copilot.ask("reroute pickers")
                 return self._json(200, out)
             if path == "/api/ask":
                 try:
-                    n = int(self.headers.get("Content-Length", 0))
-                    text = str(json.loads(self.rfile.read(min(n, 4096)) or b"{}").get("text", "")).strip()
+                    text = str(json.loads(raw or b"{}").get("text", "")).strip()
                 except (ValueError, AttributeError):
                     return self._json(400, {"error": 'send JSON like {"text": "why are orders late?"}'})
                 if not text:

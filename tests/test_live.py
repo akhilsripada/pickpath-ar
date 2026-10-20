@@ -78,6 +78,16 @@ class LiveTests(unittest.TestCase):
             with urllib.request.urlopen(self.base + path, timeout=5) as r:
                 self.assertIn(b"<html", r.read())
 
+    def test_keep_alive_connection_survives_a_post_with_a_body(self):
+        import http.client
+        c = http.client.HTTPConnection(self.base.split("//")[1], timeout=5)
+        c.request("POST", "/api/reroute", body=b"{}", headers={"Content-Type": "application/json"})
+        c.getresponse().read()
+        c.request("POST", "/api/ask", body=json.dumps({"text": "order status"}), headers={"Content-Type": "application/json"})
+        r = c.getresponse()
+        self.assertEqual(r.status, 200)
+        self.assertIn("orders this wave", json.loads(r.read())["text"])
+
     def test_mcp(self):
         import pickpath_mcp as m
         m.BASE = self.base
