@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PickPath AR · Navigation</title>
+<style>
+  :root { --bg: #0b0f13; --ink: #e9eef3; --muted: #94a0ad; --pick: #f2a43a; --panel: rgba(11,15,19,.82); --line: #26303a; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+               font: 15px/1.4 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  .hud { position: fixed; left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); z-index: 2; pointer-events: none; }
+  #top { top: max(12px, env(safe-area-inset-top)); display: flex; gap: 10px; flex-wrap: wrap; }
+  #bottom { bottom: calc(70px + env(safe-area-inset-bottom)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; pointer-events: auto; }
+  .title { font-weight: 650; }
+  .muted { color: var(--muted); font-size: 13px; }
+  #instr { font-size: 18px; font-weight: 650; }
+  #instr.done { color: var(--pick); }
+  .bar { height: 4px; background: rgba(233,238,243,.18); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+  .bar span { display: block; height: 100%; width: 0; background: var(--pick); }
+  form { display: flex; gap: 6px; margin-top: 6px; }
+  input { width: 90px; font: inherit; background: #151b22; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+  button { font: inherit; font-weight: 600; background: var(--pick); color: #111; border: 0; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+</style>
+<script type="importmap">{"imports": {"three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head>
+<body>
+<div class="hud" id="top">
+  <div class="card">
+    <div class="title" id="order">Loading route…</div>
+    <div class="muted" id="where"></div>
+    <form id="pick"><input id="oid" inputmode="numeric" placeholder="4417" aria-label="Order number"><button>Go</button></form>
+  </div>
+  <div class="card muted" id="mode" style="max-width: 360px">On an Android phone with Chrome, tap <b>Start AR</b>, point at the floor where you're standing and tap to lay the route. Elsewhere this plays a walk-through.</div>
+</div>
+<div class="hud" id="bottom"><div class="card"><div id="instr">…</div><div class="bar"><span id="prog"></span></div></div></div>
+<script type="module">
+import * as THREE from "three";
+import { ARButton } from "three/addons/webxr/ARButton.js";
+
+// ---------------------------------------------------------------- route data
+// Live from the PickPath server, or a built-in route when opened on its own (e.g. GitHub Pages).
+const SAMPLE = { order: { id: "4417", item: "USB-C hub", aisle: "C", bay: 12, level: 3, side: "right" },
+  path: [[32, 37.5], [32, 32], [21, 32], [21, 30]], origin: [32, 37.5], length_m: 18.5,
+  steps: [{ text: "Walk 6 m to the main aisle, then turn left", turn: "left", distance: 5.5, start: [32, 37.5], end: [32, 32] },
+          { text: "Walk 11 m, then turn right into aisle C", turn: "right", distance: 11, start: [32, 32], end: [21, 32] },
+          { text: "Walk 2 m. Bay C-12 is on your right, level 3", turn: "arrive", distance: 2, start: [21, 32], end: [21, 30] }] };
+let nav = SAMPLE, live = false;
+async function load(id) {
+  try {
+    const r = await fetch(`../api/orders/${encodeURIComponent(id)}`, { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    nav = await r.json(); live = true;
+  } catch { nav = SAMPLE; live = false; }
+  document.getElementById("order").textContent = `Order ${nav.order.id} · ${nav.order.item}`;
+  document.getElementById("where").textContent = `Aisle ${nav.order.aisle} · bay ${nav.order.bay} · level ${nav.order.level}` + (live ? "" : " · sample route");
+  build();
+}
+
+// ---------------------------------------------------------------- scene
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.05, 200);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.2); sun.position.set(10, 20, 5); scene.add(sun);
+const ORANGE = 0xf2a43a;
+const world = new THREE.Group(); scene.add(world);       // route, in floor metres relative to the start
+const warehouse = new THREE.Group(); world.add(warehouse); // racks: shown in the walk-through, hidden in AR
+let routePts = [], total = 1;
+
+function racks() {
+  warehouse.clear();
+  const [x0, y0] = nav.origin;
+  const mat = new THREE.MeshStandardMaterial({ color: 0x2c3743, roughness: 0.9 });
+  for (let k = 0; k <= 8; k++) {
+    const box = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.4, 24), mat);
+    box.position.set(3.5 + 7 * k - x0, 1.2, 19 - y0); warehouse.add(box);
+  }
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(64, 42), new THREE.MeshStandardMaterial({ color: 0x151b22 }));
+  floor.rotation.x = -Math.PI / 2; floor.position.set(32 - x0, 0, 21 - y0); warehouse.add(floor);
+}
+function label(text) {
+  const c = document.createElement("canvas"); c.width = 512; c.height = 128;
+  const g = c.getContext("2d"); g.fillStyle = "rgba(11,15,19,.85)"; g.fillRect(0, 0, 512, 128);
+  g.fillStyle = "#f2a43a"; g.font = "bold 64px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(text, 256, 66);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+  s.scale.set(1.6, 0.4, 1); return s;
+}
+const arrows = [];
+function build() {
+  for (const a of arrows) world.remove(a); arrows.length = 0;
+  racks();
+  const [x0, y0] = nav.origin;
+  routePts = nav.path.map(([x, y]) => new THREE.Vector3(x - x0, 0.02, y - y0));
+  total = 0; for (let i = 1; i < routePts.length; i++) total += routePts[i].distanceTo(routePts[i - 1]);
+  const shape = new THREE.Shape(); shape.moveTo(0, 0.35); shape.lineTo(0.28, -0.05); shape.lineTo(0.12, -0.05); shape.lineTo(0.12, -0.3);
+  shape.lineTo(-0.12, -0.3); shape.lineTo(-0.12, -0.05); shape.lineTo(-0.28, -0.05); shape.closePath();
+  const geo = new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2);
+  const mat = new THREE.MeshBasicMaterial({ color: ORANGE, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+  for (let d = 0.6; d < total - 0.3; d += 1.0) {
+    const { p, dir } = along(d), m = new THREE.Mesh(geo, mat.clone());
+    m.position.copy(p); m.rotation.y = Math.atan2(-dir.x, -dir.z); m.userData.d = d; world.add(m); arrows.push(m);
+  }
+  const end = routePts[routePts.length - 1], o = nav.order;
+  const side = o.side === "right" ? 1 : -1, last = routePts[routePts.length - 2], dir = end.clone().sub(last).normalize();
+  const rightVec = new THREE.Vector3(-dir.z, 0, dir.x);   // floor-right of the walking direction
+  const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.4 + 0.45 * o.level, 20), new THREE.MeshBasicMaterial({ color: ORANGE }));
+  pin.position.copy(end).addScaledVector(rightVec, side * 0.9); pin.position.y = (0.4 + 0.45 * o.level) / 2; world.add(pin); arrows.push(pin);
+  const tag = label(`${o.aisle}-${o.bay} · L${o.level}`); tag.position.copy(pin.position); tag.position.y += 0.6 + 0.25 * o.level; world.add(tag); arrows.push(tag);
+}
+function along(d) {
+  for (let i = 1; i < routePts.length; i++) {
+    const a = routePts[i - 1], b = routePts[i], len = a.distanceTo(b);
+    if (d <= len || i === routePts.length - 1) return { p: a.clone().lerp(b, Math.min(1, d / len)), dir: b.clone().sub(a).normalize(), i: i - 1 };
+    d -= len;
+  }
+}
+function progressAt(local) {      // distance along the route of the point nearest to `local`
+  let best = { dist: Infinity, d: 0 }, acc = 0;
+  for (let i = 1; i < routePts.length; i++) {
+    const a = routePts[i - 1], b = routePts[i], ab = b.clone().sub(a), len = ab.length();
+    const t = THREE.MathUtils.clamp(local.clone().sub(a).dot(ab) / (len * len), 0, 1);
+    const q = a.clone().addScaledVector(ab, t), dist = Math.hypot(local.x - q.x, local.z - q.z);
+    if (dist < best.dist) best = { dist, d: acc + t * len };
+    acc += len;
+  }
+  return best.d;
+}
+function hud(d) {
+  let acc = 0, i = 0;
+  for (; i < nav.steps.length; i++) { if (d < acc + nav.steps[i].distance || i === nav.steps.length - 1) break; acc += nav.steps[i].distance; }
+  const s = nav.steps[i], left = Math.max(0, acc + s.distance - d), o = nav.order, done = d >= total - 0.6;
+  const el = document.getElementById("instr");
+  el.textContent = done ? `You're here. It's on your ${o.side}, level ${o.level}.`
+    : s.turn === "arrive" ? `Bay ${o.aisle}-${o.bay} in ${Math.ceil(left)} m, on your ${o.side}` : `Turn ${s.turn} in ${Math.ceil(left)} m`;
+  el.classList.toggle("done", done);
+  document.getElementById("prog").style.width = Math.min(100, d / total * 100) + "%";
+}
+
+// ---------------------------------------------------------------- walk-through (no AR)
+let walk = 0;
+function preview(dt) {
+  walk = (walk + 1.4 * dt) % (total + 3);
+  const d = Math.min(walk, total - 0.4), { p, dir } = along(d);
+  camera.position.set(p.x - dir.x * 1.2, 1.6, p.z - dir.z * 1.2);
+  const ahead = along(Math.min(total, d + 3)).p; camera.lookAt(ahead.x, 0.6, ahead.z);
+  hud(d);
+}
+
+// ---------------------------------------------------------------- AR: lay the route on the real floor
+let hitSource = null, placed = false;
+const reticle = new THREE.Mesh(new THREE.RingGeometry(0.1, 0.13, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+reticle.matrixAutoUpdate = false; reticle.visible = false; scene.add(reticle);
+document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ["hit-test"] }));
+renderer.xr.addEventListener("sessionstart", async () => {
+  const session = renderer.xr.getSession();
+  hitSource = await session.requestHitTestSource({ space: await session.requestReferenceSpace("viewer") });
+  warehouse.visible = false; world.visible = false; placed = false;
+  document.getElementById("instr").textContent = "Point at the floor where you're standing, then tap";
+  session.addEventListener("select", () => {
+    if (!reticle.visible) return;
+    world.position.setFromMatrixPosition(reticle.matrix);
+    const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd);
+    world.rotation.set(0, Math.atan2(-fwd.x, -fwd.z), 0);   // route's first leg points where you're facing
+    world.visible = true; placed = true; reticle.visible = false;
+  });
+});
+renderer.xr.addEventListener("sessionend", () => { hitSource = null; warehouse.visible = true; world.visible = true; world.position.set(0, 0, 0); world.rotation.set(0, 0, 0); });
+
+let last = performance.now();
+renderer.setAnimationLoop((t, frame) => {
+  const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
+  arrows.forEach((m) => { if (m.userData.d != null) m.material.opacity = 0.55 + 0.4 * Math.sin(now / 300 - m.userData.d * 1.3); });
+  if (renderer.xr.isPresenting) {
+    if (frame && hitSource && !placed) {
+      const hits = frame.getHitTestResults(hitSource);
+      reticle.visible = hits.length > 0;
+      if (hits.length) reticle.matrix.fromArray(hits[0].getPose(renderer.xr.getReferenceSpace()).transform.matrix);
+    }
+    if (placed) {
+      const cam = new THREE.Vector3(); camera.getWorldPosition(cam);
+      hud(progressAt(world.worldToLocal(cam)));
+    }
+  } else if (routePts.length) preview(dt);
+  renderer.render(scene, camera);
+});
+addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+document.getElementById("pick").addEventListener("submit", (e) => { e.preventDefault(); const v = document.getElementById("oid").value.trim(); if (v) load(v); });
+load(new URLSearchParams(location.search).get("order") || "4417");
+</script>
+</body>
+</html>

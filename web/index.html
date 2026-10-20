@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PickPath AR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: a lab bench. Name strip, three project tabs, then per project: command bar, AI reply, live stage + side instruments. */
+  :root {
+    --bg: #eef1f4; --panel: #ffffff; --ink: #141920; --muted: #586270; --line: #dbe0e6; --soft: #f3f5f7;
+    --sentinel: #c93a31; --pick: #b86e00; --home: #0a7f75;
+    --ok: #1b7444; --warn: #a86400; --bad: #c22f2c;
+    --land: #dfe4ea; --land-edge: #b9c2cd; --globe: #f7f9fb; --grid: #e7ebef;
+    --floor: #f6f7f9; --rack: #d7dde4; --wall: #8a95a2; --glow: #ffb648; --cam: #11161c; --cam-ink: #e9eef3; --cam-line: #2b3540;
+    --display: "Familjen Grotesk", "Arial Narrow", system-ui, sans-serif;
+    --body: "Instrument Sans", -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    --accent: var(--sentinel);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c1014; --panel: #151a20; --ink: #e6eaee; --muted: #8b95a1; --line: #252c35; --soft: #1b2129;
+      --sentinel: #ff6e64; --pick: #f2a43a; --home: #39c4b5;
+      --ok: #5fcf8f; --warn: #f2b553; --bad: #ff7570;
+      --land: #222a33; --land-edge: #3a4553; --globe: #10151a; --grid: #1d242c;
+      --floor: #12171c; --rack: #2a333d; --wall: #6d7886; --glow: #ffb648; --cam: #0b0f13; --cam-ink: #e9eef3; --cam-line: #26303a;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c1014; --panel: #151a20; --ink: #e6eaee; --muted: #8b95a1; --line: #252c35; --soft: #1b2129;
+    --sentinel: #ff6e64; --pick: #f2a43a; --home: #39c4b5;
+    --ok: #5fcf8f; --warn: #f2b553; --bad: #ff7570;
+    --land: #222a33; --land-edge: #3a4553; --globe: #10151a; --grid: #1d242c;
+    --floor: #12171c; --rack: #2a333d; --wall: #6d7886; --glow: #ffb648; --cam: #0b0f13; --cam-ink: #e9eef3; --cam-line: #26303a;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); }
+  .wrap { max-width: 1260px; margin: 0 auto; padding-block: 22px 48px;
+          padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+          display: grid; gap: 16px; }
+  .owner { display: flex; align-items: baseline; gap: 6px 14px; flex-wrap: wrap; }
+  h1 { font: 700 30px/1.05 var(--display); letter-spacing: -0.02em; margin: 0; }
+  .owner p { margin: 0; color: var(--muted); max-width: 62ch; }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .muted { color: var(--muted); }
+
+  .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .tab { text-align: left; font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
+         border-radius: 10px; padding: 12px 14px; cursor: pointer; display: grid; gap: 2px; position: relative; }
+  .tab .t-name { font: 600 18px/1.2 var(--display); display: flex; align-items: center; gap: 8px; }
+  .tab .t-line { color: var(--muted); font-size: 13px; }
+  .tab i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); display: inline-block; }
+  .tab[aria-selected="true"] { border-color: var(--c); box-shadow: inset 0 -3px 0 var(--c); }
+  .tab:hover { border-color: var(--c); }
+  .tab:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .proj { display: grid; gap: 12px; }
+  .proj[data-p="sentinel"] { --accent: var(--sentinel); }
+  .proj[data-p="pickpath"] { --accent: var(--pick); }
+  .proj[data-p="homemind"] { --accent: var(--home); }
+  .proj-head { display: flex; gap: 8px 16px; align-items: baseline; flex-wrap: wrap; }
+  .proj-head h2 { font: 700 24px/1.1 var(--display); margin: 0; letter-spacing: -0.01em; }
+  .proj-head p { margin: 0; color: var(--muted); max-width: 70ch; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font: 500 12px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 2px 9px; background: var(--panel); }
+
+  .cmd { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 10px; }
+  .cmd form { display: flex; gap: 8px; align-items: stretch; }
+  .cmd input { flex: 1; min-width: 0; font: 500 16px var(--body); color: var(--ink); background: var(--soft);
+               border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .cmd input::placeholder { color: var(--muted); }
+  .btn { font: 600 14px var(--body); border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+         padding: 8px 12px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+  .btn.primary:hover { color: var(--panel); filter: brightness(1.06); }
+  .btn.icon { width: 44px; padding: 0; display: grid; place-items: center; }
+  .btn.icon svg { width: 18px; height: 18px; fill: currentColor; }
+  .examples { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .examples .lbl { font-size: 12px; color: var(--muted); margin-right: 2px; }
+  .ex { font: 500 13px var(--body); color: var(--ink); background: var(--soft); border: 1px solid var(--line); border-radius: 99px;
+        padding: 4px 11px; cursor: pointer; }
+  .ex:hover { border-color: var(--accent); color: var(--accent); }
+
+  .reply { border-left: 3px solid var(--accent); background: var(--panel); border-radius: 0 10px 10px 0; padding: 12px 14px;
+           display: grid; gap: 8px; border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .reply.pop { animation: pop .45s cubic-bezier(.2,.9,.3,1.2); }
+  @keyframes pop { from { transform: translateY(6px) scale(.985); opacity: .35; } }
+  .reply .you { font-size: 13px; color: var(--muted); }
+  .reply .you b { color: var(--ink); font-weight: 600; }
+  .reply .ans { max-width: 80ch; }
+  .reply .ans p { margin: 0 0 6px; }
+  .reply .ans ul { margin: 4px 0 6px; padding-left: 18px; display: grid; gap: 3px; }
+  .reply .meta { font: 12px var(--mono); color: var(--muted); }
+  .reply .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .quote { background: var(--soft); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+
+  .stage { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; display: grid; gap: 8px; }
+  .panel h3 { font: 600 15px/1.2 var(--display); margin: 0; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .panel h3 .hint { font: 400 12px var(--body); color: var(--muted); }
+  canvas { display: block; width: 100%; }
+  .c-main { height: 400px; }
+  .c-ar { height: 240px; border-radius: 8px; }
+  .c-chart { height: 130px; }
+  .side { display: grid; gap: 12px; min-width: 0; }
+
+  .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .kpi { background: var(--soft); border-radius: 8px; padding: 8px 10px; }
+  .kpi .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .kpi .v { font: 700 22px/1.15 var(--display); font-variant-numeric: tabular-nums; }
+
+  .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 300px; overflow: auto; }
+  .row { display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; gap: 4px 10px; align-items: center;
+         padding: 7px 6px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+  .row.click { cursor: pointer; }
+  .row.click:hover { background: var(--soft); }
+  .row .sub { grid-column: 2 / -1; color: var(--muted); font-size: 12.5px; }
+  .row.new { animation: flash 1.4s ease-out; }
+  @keyframes flash { from { background: color-mix(in srgb, var(--accent) 16%, transparent); } }
+  .badge { font: 600 11px var(--body); letter-spacing: .03em; padding: 2px 7px; border-radius: 4px; justify-self: start; }
+  .b-block { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+  .b-review { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  .b-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+  .b-idle { color: var(--muted); background: var(--soft); }
+  .right { text-align: right; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  .note { font-size: 12.5px; color: var(--muted); margin: 0; max-width: 90ch; }
+
+  .dev { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 6px; border-radius: 6px; }
+  .dev .n { font-weight: 500; }
+  .dev .s { color: var(--muted); font-size: 12.5px; }
+  .dev .w { font: 12px var(--mono); color: var(--muted); text-align: right; min-width: 58px; }
+  .toggle { width: 42px; height: 24px; border-radius: 99px; border: 1px solid var(--line); background: var(--soft); position: relative; cursor: pointer; padding: 0; }
+  .toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--muted); transition: transform .18s, background .18s; }
+  .toggle[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
+  .toggle[aria-pressed="true"]::after { transform: translateX(18px); background: var(--accent); }
+  .toggle:disabled { opacity: .45; cursor: default; }
+  .full { font-size: 13px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 10px; margin: 0; }
+  .full b { color: var(--ink); font-weight: 600; }
+
+  @media (max-width: 960px) {
+    .stage { grid-template-columns: minmax(0, 1fr); }
+    .c-main { height: 330px; }
+  }
+  @media (max-width: 640px) {
+    .tabs { grid-template-columns: minmax(0, 1fr); }
+    .tab .t-line { display: none; }
+    .cmd form { flex-wrap: wrap; }
+    .cmd input { flex-basis: 100%; }
+    .c-main { height: 290px; }
+    h1 { font-size: 26px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  :root { --accent: var(--pick); }
+  a { color: var(--accent); }
+  .pill { font-size: 12px; padding: 2px 10px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); background: var(--panel); display: inline-flex; gap: 6px; align-items: center; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .live .dot { background: var(--ok); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="owner">
+    <h1>PickPath AR</h1>
+    <span class="mono muted">by Akhil Sripada</span>
+    <span class="pill" id="conn"><span class="dot"></span><span id="connText">connecting</span></span>
+    <p>A live fulfillment floor. Ask for any order and get turn-by-turn directions, on screen or through your phone's camera.</p>
+  </header>
+
+  <section class="proj" data-p="pickpath">
+    <div class="cmd">
+      <form id="ask-form" autocomplete="off">
+        <input id="ask-input" type="text" placeholder="Ask PickPath, e.g. “Where is order 4417?”" aria-label="Ask PickPath">
+        <button class="btn primary" type="submit">Ask</button>
+      </form>
+      <div class="examples"><span class="lbl">Try</span>
+        <button class="ex" data-ask>Where is order 4417?</button>
+        <button class="ex" data-ask>Why are orders late?</button>
+        <button class="ex" data-ask>Reroute pickers</button>
+        <button class="ex" data-ask>Where is robot R2?</button>
+        <button class="ex" data-ask>Order status</button>
+      </div>
+    </div>
+    <div class="reply" id="reply" role="status" aria-live="polite" hidden></div>
+
+    <div class="kpis" style="grid-template-columns: repeat(5, minmax(0,1fr))" id="kpis">
+      <div class="kpi"><div class="l">Queued</div><div class="v" id="k-queued">–</div></div>
+      <div class="kpi"><div class="l">Picking</div><div class="v" id="k-picking">–</div></div>
+      <div class="kpi"><div class="l">Packing</div><div class="v" id="k-packing">–</div></div>
+      <div class="kpi"><div class="l">Shipped</div><div class="v" id="k-shipped">–</div></div>
+      <div class="kpi"><div class="l">Late</div><div class="v" id="k-late">–</div></div>
+    </div>
+
+    <div class="stage">
+      <div class="panel">
+        <h3>Floor map <span class="hint">Aisles A–H, 12 bays each. Dots are pickers, squares are robots.</span></h3>
+        <canvas id="map" class="c-main" aria-label="Live warehouse floor map"></canvas>
+        <div class="legend"><span><i style="background:var(--ink)"></i>Picker</span><span><i style="background:var(--wall);border-radius:2px"></i>Robot</span><span><i style="background:var(--pick)"></i>Your route</span><span><i style="background:var(--bad)"></i>Over capacity</span><span id="overflow"></span></div>
+      </div>
+      <div class="side">
+        <div class="panel">
+          <h3>AR view <span class="hint">what your phone shows · <a href="ar" id="ar-link">open on phone</a></span></h3>
+          <canvas id="ar" class="c-ar" aria-label="AR navigation preview"></canvas>
+        </div>
+        <div class="panel">
+          <h3>Orders <span class="hint">tap one for directions</span></h3>
+          <ul class="list" id="orders"></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+  <p class="note">Floor state streams from the server five times a second. The simulation runs at 4× real time so a full wave plays out in minutes.</p>
+</div>
+<script>
+// PickPath AR live client: draws server state, asks the copilot, previews AR directions.
+const $ = (s) => document.querySelector(s);
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let PAL = {};
+function readPal() {
+  const s = getComputedStyle(document.documentElement), g = (n) => s.getPropertyValue(n).trim();
+  PAL = {};
+  ["panel", "ink", "muted", "line", "soft", "pick", "ok", "warn", "bad", "floor", "rack", "wall", "cam", "cam-ink", "cam-line", "mono", "body"].forEach((k) => { PAL[k] = g("--" + k); });
+}
+readPal();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", readPal);
+new MutationObserver(readPal).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+function rgba(hex, a) {
+  let m = String(hex).replace("#", "").trim(); if (m.length === 3) m = m.split("").map((c) => c + c).join("");
+  const n = parseInt(m, 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+function fit(c) {
+  const d = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== Math.round(w * d) || c.height !== Math.round(h * d)) { c.width = Math.round(w * d); c.height = Math.round(h * d); }
+  const x = c.getContext("2d"); x.setTransform(d, 0, 0, d, 0, 0); x.clearRect(0, 0, w, h); return [x, w, h];
+}
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// ------------------------------------------------------------------ floor geometry (mirrors src/pickpath/floor.py)
+const L = "ABCDEFGH", W = 64, H = 42, TOP = 4, BOT = 32, BAY0 = 7, BAYH = 2, NBAY = 12, CAP = 2;
+const AX = (i) => 7 + i * 7;
+
+// ------------------------------------------------------------------ live state
+let state = null, prev = null, stateAt = 0;
+let nav = null, walked = 0, highlight = null, lastT = 0;
+function connect() {
+  const es = new EventSource("events");
+  es.onopen = () => { $("#conn").classList.add("live"); $("#connText").textContent = "live"; };
+  es.onerror = () => { $("#conn").classList.remove("live"); $("#connText").textContent = "reconnecting"; };
+  es.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type !== "state") return;
+    prev = state; state = m; stateAt = performance.now();
+    renderOrders(); renderCounts();
+  };
+}
+function agentPos(a) {  // interpolate between the last two snapshots for smooth motion
+  if (!prev) return a;
+  const p = prev.agents.find((x) => x.id === a.id); if (!p) return a;
+  const k = Math.min(1, (performance.now() - stateAt) / 200);
+  return { ...a, x: p.x + (a.x - p.x) * k, y: p.y + (a.y - p.y) * k };
+}
+function renderCounts() {
+  for (const k of ["queued", "picking", "packing", "shipped", "late"]) $("#k-" + k).textContent = state.counts[k];
+  $("#k-late").style.color = state.counts.late ? "var(--bad)" : "";
+  $("#overflow").innerHTML = state.overflow ? `<i style="background:var(--ok)"></i>Overflow routing on` : "";
+}
+const BADGE = { late: "b-block", picking: "b-review", packing: "b-ok", queued: "b-idle", shipped: "b-idle" };
+const RANK = { late: 0, picking: 1, queued: 2, packing: 3, shipped: 4 };
+let ordersKey = "";
+function renderOrders() {
+  const list = [...state.orders].sort((a, b) => RANK[a.status] - RANK[b.status] || a.id - b.id).slice(0, 14);
+  const key = list.map((o) => o.id + o.status).join();
+  if (key === ordersKey) return; ordersKey = key;
+  $("#orders").innerHTML = list.map((o) => `<li class="row click" data-order="${o.id}" tabindex="0">
+    <span class="badge ${BADGE[o.status]}">${o.status[0].toUpperCase() + o.status.slice(1)}</span>
+    <span>#${o.id} · ${esc(o.item)}</span><span class="mono muted">${o.aisle}-${o.bay}</span></li>`).join("");
+}
+$("#orders").addEventListener("click", (e) => { const li = e.target.closest("[data-order]"); if (li) ask(`Where is order ${li.dataset.order}?`); });
+$("#orders").addEventListener("keydown", (e) => { if (e.key === "Enter") e.target.click(); });
+
+// ------------------------------------------------------------------ copilot
+async function ask(text) {
+  $("#ask-input").value = text;
+  const box = $("#reply"); box.hidden = false; box.innerHTML = `<div class="meta">Thinking…</div>`;
+  try {
+    const r = await fetch("api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+    const out = await r.json();
+    if (!r.ok) throw new Error(out.error || r.status);
+    if (out.nav) { nav = out.nav; walked = 0; $("#ar-link").href = "ar?order=" + out.nav.order.id; }
+    if (out.highlight) highlight = { ...out.highlight, until: performance.now() + 9000 };
+    box.innerHTML = `<div class="you"><b>You:</b> ${esc(text)}</div><div class="ans"><p><b>${esc(out.text)}</b></p>` +
+      (out.reasons ? `<ul>${out.reasons.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "") +
+      (out.next_step ? `<p>${esc(out.next_step)}</p>` : "") +
+      `</div><div class="meta">answered in ${out.ms} ms · understood by ${out.routed_by === "llm" ? "the language model" : "fast rules"}</div>`;
+    box.classList.remove("pop"); void box.offsetWidth; box.classList.add("pop");
+  } catch (e) { box.innerHTML = `<p>PickPath couldn't answer: ${esc(e.message)}. Is the server running?</p>`; }
+}
+$("#ask-form").addEventListener("submit", (e) => { e.preventDefault(); const t = $("#ask-input").value.trim(); if (t) ask(t); });
+document.querySelectorAll("[data-ask]").forEach((b) => b.addEventListener("click", () => ask(b.textContent.trim())));
+
+// ------------------------------------------------------------------ navigation helpers
+function navPos() {
+  let d = walked;
+  for (let i = 0; i < nav.steps.length; i++) {
+    const s = nav.steps[i];
+    if (d <= s.distance || i === nav.steps.length - 1) {
+      const t = s.distance ? Math.min(1, d / s.distance) : 1;
+      return { i, left: Math.max(0, s.distance - d), x: s.start[0] + (s.end[0] - s.start[0]) * t, y: s.start[1] + (s.end[1] - s.start[1]) * t };
+    }
+    d -= s.distance;
+  }
+}
+
+// ------------------------------------------------------------------ map
+function drawMap(t) {
+  const [x, w, h] = fit($("#map"));
+  const s = Math.min(w / W, h / H), ox = (w - W * s) / 2, oy = (h - H * s) / 2, X = (v) => ox + v * s, Y = (v) => oy + v * s;
+  x.fillStyle = PAL.floor; x.fillRect(X(0), Y(0), W * s, H * s);
+  x.strokeStyle = PAL.line; x.lineWidth = 1; x.strokeRect(X(0) + .5, Y(0) + .5, W * s - 1, H * s - 1);
+  if (!state) return;
+  const occ = state.occupancy;
+  for (let i = 0; i < 8; i++) {
+    const n = occ[i] || 0;
+    if (n > CAP) { x.fillStyle = rgba(PAL.bad, Math.min(0.32, 0.1 + 0.07 * (n - CAP))); x.fillRect(X(AX(i) - 2.4), Y(BAY0), 4.8 * s, NBAY * BAYH * s); }
+    if (highlight && highlight.aisle === L[i] && performance.now() < highlight.until) { x.strokeStyle = PAL.pick; x.lineWidth = 2; x.strokeRect(X(AX(i) - 2.4), Y(BAY0), 4.8 * s, NBAY * BAYH * s); }
+  }
+  for (let k = 0; k <= 8; k++) {
+    const cx = 3.5 + 7 * k;
+    x.fillStyle = PAL.rack; x.fillRect(X(cx - 1.2), Y(BAY0), 2.4 * s, NBAY * BAYH * s);
+    x.strokeStyle = PAL.floor; x.lineWidth = 1;
+    for (let b = 1; b < NBAY; b++) { x.beginPath(); x.moveTo(X(cx - 1.2), Y(BAY0 + b * BAYH)); x.lineTo(X(cx + 1.2), Y(BAY0 + b * BAYH)); x.stroke(); }
+  }
+  x.font = `600 ${Math.max(10, s * 1.5)}px ${PAL.mono}`; x.textAlign = "center"; x.textBaseline = "middle";
+  for (let i = 0; i < 8; i++) {
+    const n = occ[i] || 0;
+    x.fillStyle = n > CAP ? PAL.bad : PAL.muted; x.fillText(L[i], X(AX(i)), Y(TOP - 1.6));
+    if (n > CAP) { x.font = `600 ${Math.max(9, s * 1.05)}px ${PAL.body}`; x.fillText(`${n}/${CAP}`, X(AX(i)), Y(BAY0 + NBAY * BAYH + 1.1)); x.font = `600 ${Math.max(10, s * 1.5)}px ${PAL.mono}`; }
+  }
+  x.fillStyle = PAL.soft; x.fillRect(X(2), Y(34.5), 60 * s, 6 * s);
+  x.fillStyle = PAL.muted; x.font = `${Math.max(10, s * 1.2)}px ${PAL.body}`; x.textAlign = "left"; x.fillText("Packing and dock", X(3), Y(37.5));
+  for (let k = 0; k < 6; k++) { x.fillStyle = PAL.rack; x.fillRect(X(40 + k * 3.6), Y(36), 2.6 * s, 3 * s); }
+  const now = performance.now();
+  if (nav) {
+    x.strokeStyle = PAL.pick; x.lineWidth = Math.max(2.5, s * 0.45); x.setLineDash([s * 1.2, s * 0.8]); x.lineDashOffset = reduceMotion ? 0 : -now / 60;
+    x.beginPath(); nav.path.forEach((p, i) => (i ? x.lineTo(X(p[0]), Y(p[1])) : x.moveTo(X(p[0]), Y(p[1])))); x.stroke(); x.setLineDash([]);
+    const g = nav.path[nav.path.length - 1], k = reduceMotion ? 0 : (now % 1400) / 1400;
+    x.strokeStyle = rgba(PAL.pick, 1 - k); x.lineWidth = 2; x.beginPath(); x.arc(X(g[0]), Y(g[1]), s * (0.8 + k * 2.2), 0, 7); x.stroke();
+  }
+  for (const raw of state.agents) {
+    const a = agentPos(raw), hl = highlight && highlight.agent === a.id && now < highlight.until, r = Math.max(3.5, s * 0.6);
+    if (a.kind === "P") { x.fillStyle = PAL.ink; x.beginPath(); x.arc(X(a.x), Y(a.y), r, 0, 7); x.fill(); }
+    else { x.fillStyle = PAL.wall; x.fillRect(X(a.x) - r, Y(a.y) - r, r * 2, r * 2); }
+    if (hl) { x.strokeStyle = PAL.pick; x.lineWidth = 2.5; x.beginPath(); x.arc(X(a.x), Y(a.y), s * 1.6, 0, 7); x.stroke(); }
+    if (s > 7 || hl) { x.fillStyle = hl ? PAL.pick : PAL.muted; x.font = `600 ${Math.max(9, s * 0.95)}px ${PAL.mono}`; x.textAlign = "left"; x.fillText(a.id, X(a.x) + s * 0.9, Y(a.y) - s * 0.7); }
+  }
+  const me = nav ? navPos() : { x: 32, y: 37.5 };
+  x.fillStyle = PAL.pick; x.beginPath(); x.arc(X(me.x), Y(me.y), Math.max(4.5, s * 0.75), 0, 7); x.fill();
+  x.strokeStyle = PAL.panel; x.lineWidth = 2; x.stroke();
+  x.fillStyle = PAL.pick; x.font = `600 ${Math.max(10, s * 1.1)}px ${PAL.body}`; x.textAlign = "left"; x.fillText("You", X(me.x) + s * 1.1, Y(me.y) + s * 0.1);
+}
+
+// ------------------------------------------------------------------ AR preview
+function drawAR(t) {
+  const [x, w, h] = fit($("#ar"));
+  x.fillStyle = PAL.cam; x.fillRect(0, 0, w, h);
+  const hz = h * 0.4, cx = w / 2, sc = (z) => 2.2 / (z + 2.2), fy = (z) => hz + (h - hz) * sc(z), hw = (z) => w * 0.62 * sc(z);
+  x.strokeStyle = PAL["cam-line"]; x.lineWidth = 1;
+  for (let k = -4; k <= 4; k++) { x.beginPath(); x.moveTo(cx + k * w * 0.18, h); x.lineTo(cx + k * 3, hz); x.stroke(); }
+  for (let z = 0; z < 30; z += 2) { const zz = z - (walked % 2); if (zz < 0) continue; x.beginPath(); x.moveTo(cx - hw(zz) * 1.6, fy(zz)); x.lineTo(cx + hw(zz) * 1.6, fy(zz)); x.stroke(); }
+  for (const side of [-1, 1]) {
+    x.fillStyle = rgba(PAL["cam-ink"], 0.07);
+    x.beginPath(); x.moveTo(cx + side * hw(0), fy(0)); x.lineTo(cx + side * hw(0), fy(0) - h * 0.95);
+    x.lineTo(cx + side * hw(30), fy(30) - h * 0.95 * sc(30)); x.lineTo(cx + side * hw(30), fy(30)); x.closePath(); x.fill();
+  }
+  x.font = `600 13px ${PAL.body}`; x.textBaseline = "middle";
+  if (!nav) {
+    x.fillStyle = PAL["cam-ink"]; x.textAlign = "center"; x.fillText("Ask “Where is order 4417?” to start", cx, h * 0.22);
+    x.fillStyle = rgba(PAL["cam-ink"], 0.6); x.font = `12px ${PAL.body}`; x.fillText("Directions appear here, drawn over the camera", cx, h * 0.22 + 20);
+    return;
+  }
+  const total = nav.steps.reduce((a, s) => a + s.distance, 0), pos = navPos(), step = nav.steps[pos.i], done = walked >= total - 0.01, o = nav.order;
+  if (!done) {
+    for (let k = 0; k < 7; k++) {
+      const z = ((k * 2.2 - (reduceMotion ? 0 : (t / 380) % 2.2)) + 15.4) % 15.4 + 0.6;
+      if (z > pos.left + 0.5) continue;
+      const y = fy(z), size = 26 * sc(z), a = Math.min(1, 1.2 - z / 16);
+      x.strokeStyle = rgba(PAL.pick, a); x.lineWidth = Math.max(2, 7 * sc(z)); x.lineCap = "round"; x.lineJoin = "round";
+      x.beginPath(); x.moveTo(cx - size, y + size * 0.35); x.lineTo(cx, y - size * 0.35); x.lineTo(cx + size, y + size * 0.35); x.stroke();
+    }
+    if ((step.turn === "left" || step.turn === "right") && pos.left < 9) {
+      const z = Math.max(0.8, pos.left), y = fy(z) - 30 * sc(z), dir = step.turn === "right" ? 1 : -1, size = 46 * sc(z) + 10;
+      x.fillStyle = PAL.pick; x.beginPath();
+      x.moveTo(cx + dir * size * 1.2, y); x.lineTo(cx + dir * size * 0.2, y - size * 0.6); x.lineTo(cx + dir * size * 0.2, y - size * 0.22);
+      x.lineTo(cx - dir * size * 0.8, y - size * 0.22); x.lineTo(cx - dir * size * 0.8, y + size * 0.22); x.lineTo(cx + dir * size * 0.2, y + size * 0.22);
+      x.lineTo(cx + dir * size * 0.2, y + size * 0.6); x.closePath(); x.fill();
+    }
+  } else {
+    const side = o.side === "right" ? 1 : -1, bx = cx + side * w * 0.3, by = h * 0.62 - o.level * h * 0.1, k = reduceMotion ? 0 : (t % 1200) / 1200;
+    x.strokeStyle = PAL.pick; x.lineWidth = 3; x.strokeRect(bx - 34, by - 18, 68, 36);
+    x.strokeStyle = rgba(PAL.pick, 1 - k); x.strokeRect(bx - 34 - k * 10, by - 18 - k * 10, 68 + k * 20, 36 + k * 20);
+    x.fillStyle = PAL.pick; x.textAlign = "center"; x.font = `600 12px ${PAL.mono}`; x.fillText(`${o.aisle}-${o.bay} · L${o.level}`, bx, by);
+  }
+  x.fillStyle = rgba(PAL.cam, 0.78); x.fillRect(10, 10, Math.min(w - 20, 270), 44);
+  x.fillStyle = PAL["cam-ink"]; x.textAlign = "left"; x.font = `600 13px ${PAL.body}`; x.fillText(`Order ${o.id} · ${o.item}`, 20, 25);
+  x.fillStyle = rgba(PAL["cam-ink"], 0.7); x.font = `12px ${PAL.mono}`; x.fillText(`Aisle ${o.aisle} · bay ${o.bay} · level ${o.level}`, 20, 42);
+  const msg = done ? `You're here. It's on your ${o.side}, level ${o.level}.` : step.turn === "arrive" ? `Bay ${o.aisle}-${o.bay} in ${Math.ceil(pos.left)} m, on your ${o.side}` : `Turn ${step.turn} in ${Math.ceil(pos.left)} m`;
+  x.fillStyle = rgba(PAL.cam, 0.82); x.fillRect(10, h - 46, w - 20, 36);
+  x.fillStyle = done ? PAL.pick : PAL["cam-ink"]; x.font = `600 14px ${PAL.body}`; x.fillText(msg, 20, h - 28);
+  x.fillStyle = rgba(PAL["cam-ink"], 0.18); x.fillRect(10, h - 10, w - 20, 3);
+  x.fillStyle = PAL.pick; x.fillRect(10, h - 10, (w - 20) * walked / total, 3);
+}
+
+function loop(t) {
+  const dt = Math.min(0.05, (t - lastT) / 1000 || 0); lastT = t;
+  if (nav) { const total = nav.steps.reduce((a, s) => a + s.distance, 0); walked = Math.min(total, walked + 1.4 * 2.2 * dt); }
+  drawMap(t); drawAR(t);
+  requestAnimationFrame(loop);
+}
+connect(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>

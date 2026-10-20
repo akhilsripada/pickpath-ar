@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PickPath AR · Live demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: a lab bench. Name strip, three project tabs, then per project: command bar, AI reply, live stage + side instruments. */
+  :root {
+    --bg: #eef1f4; --panel: #ffffff; --ink: #141920; --muted: #586270; --line: #dbe0e6; --soft: #f3f5f7;
+    --sentinel: #c93a31; --pick: #b86e00; --home: #0a7f75;
+    --ok: #1b7444; --warn: #a86400; --bad: #c22f2c;
+    --land: #dfe4ea; --land-edge: #b9c2cd; --globe: #f7f9fb; --grid: #e7ebef;
+    --floor: #f6f7f9; --rack: #d7dde4; --wall: #8a95a2; --glow: #ffb648; --cam: #11161c; --cam-ink: #e9eef3; --cam-line: #2b3540;
+    --display: "Familjen Grotesk", "Arial Narrow", system-ui, sans-serif;
+    --body: "Instrument Sans", -apple-system, "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    --accent: var(--sentinel);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c1014; --panel: #151a20; --ink: #e6eaee; --muted: #8b95a1; --line: #252c35; --soft: #1b2129;
+      --sentinel: #ff6e64; --pick: #f2a43a; --home: #39c4b5;
+      --ok: #5fcf8f; --warn: #f2b553; --bad: #ff7570;
+      --land: #222a33; --land-edge: #3a4553; --globe: #10151a; --grid: #1d242c;
+      --floor: #12171c; --rack: #2a333d; --wall: #6d7886; --glow: #ffb648; --cam: #0b0f13; --cam-ink: #e9eef3; --cam-line: #26303a;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c1014; --panel: #151a20; --ink: #e6eaee; --muted: #8b95a1; --line: #252c35; --soft: #1b2129;
+    --sentinel: #ff6e64; --pick: #f2a43a; --home: #39c4b5;
+    --ok: #5fcf8f; --warn: #f2b553; --bad: #ff7570;
+    --land: #222a33; --land-edge: #3a4553; --globe: #10151a; --grid: #1d242c;
+    --floor: #12171c; --rack: #2a333d; --wall: #6d7886; --glow: #ffb648; --cam: #0b0f13; --cam-ink: #e9eef3; --cam-line: #26303a;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); }
+  .wrap { max-width: 1260px; margin: 0 auto; padding-block: 22px 48px;
+          padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+          display: grid; gap: 16px; }
+  .owner { display: flex; align-items: baseline; gap: 6px 14px; flex-wrap: wrap; }
+  h1 { font: 700 30px/1.05 var(--display); letter-spacing: -0.02em; margin: 0; }
+  .owner p { margin: 0; color: var(--muted); max-width: 62ch; }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .muted { color: var(--muted); }
+
+  .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .tab { text-align: left; font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
+         border-radius: 10px; padding: 12px 14px; cursor: pointer; display: grid; gap: 2px; position: relative; }
+  .tab .t-name { font: 600 18px/1.2 var(--display); display: flex; align-items: center; gap: 8px; }
+  .tab .t-line { color: var(--muted); font-size: 13px; }
+  .tab i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); display: inline-block; }
+  .tab[aria-selected="true"] { border-color: var(--c); box-shadow: inset 0 -3px 0 var(--c); }
+  .tab:hover { border-color: var(--c); }
+  .tab:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .proj { display: grid; gap: 12px; }
+  .proj[data-p="sentinel"] { --accent: var(--sentinel); }
+  .proj[data-p="pickpath"] { --accent: var(--pick); }
+  .proj[data-p="homemind"] { --accent: var(--home); }
+  .proj-head { display: flex; gap: 8px 16px; align-items: baseline; flex-wrap: wrap; }
+  .proj-head h2 { font: 700 24px/1.1 var(--display); margin: 0; letter-spacing: -0.01em; }
+  .proj-head p { margin: 0; color: var(--muted); max-width: 70ch; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font: 500 12px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 2px 9px; background: var(--panel); }
+
+  .cmd { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 10px; }
+  .cmd form { display: flex; gap: 8px; align-items: stretch; }
+  .cmd input { flex: 1; min-width: 0; font: 500 16px var(--body); color: var(--ink); background: var(--soft);
+               border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .cmd input::placeholder { color: var(--muted); }
+  .btn { font: 600 14px var(--body); border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+         padding: 8px 12px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+  .btn.primary:hover { color: var(--panel); filter: brightness(1.06); }
+  .btn.icon { width: 44px; padding: 0; display: grid; place-items: center; }
+  .btn.icon svg { width: 18px; height: 18px; fill: currentColor; }
+  .examples { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .examples .lbl { font-size: 12px; color: var(--muted); margin-right: 2px; }
+  .ex { font: 500 13px var(--body); color: var(--ink); background: var(--soft); border: 1px solid var(--line); border-radius: 99px;
+        padding: 4px 11px; cursor: pointer; }
+  .ex:hover { border-color: var(--accent); color: var(--accent); }
+
+  .reply { border-left: 3px solid var(--accent); background: var(--panel); border-radius: 0 10px 10px 0; padding: 12px 14px;
+           display: grid; gap: 8px; border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .reply.pop { animation: pop .45s cubic-bezier(.2,.9,.3,1.2); }
+  @keyframes pop { from { transform: translateY(6px) scale(.985); opacity: .35; } }
+  .reply .you { font-size: 13px; color: var(--muted); }
+  .reply .you b { color: var(--ink); font-weight: 600; }
+  .reply .ans { max-width: 80ch; }
+  .reply .ans p { margin: 0 0 6px; }
+  .reply .ans ul { margin: 4px 0 6px; padding-left: 18px; display: grid; gap: 3px; }
+  .reply .meta { font: 12px var(--mono); color: var(--muted); }
+  .reply .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .quote { background: var(--soft); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+
+  .stage { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; display: grid; gap: 8px; }
+  .panel h3 { font: 600 15px/1.2 var(--display); margin: 0; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .panel h3 .hint { font: 400 12px var(--body); color: var(--muted); }
+  canvas { display: block; width: 100%; }
+  .c-main { height: 400px; }
+  .c-ar { height: 240px; border-radius: 8px; }
+  .c-chart { height: 130px; }
+  .side { display: grid; gap: 12px; min-width: 0; }
+
+  .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .kpi { background: var(--soft); border-radius: 8px; padding: 8px 10px; }
+  .kpi .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .kpi .v { font: 700 22px/1.15 var(--display); font-variant-numeric: tabular-nums; }
+
+  .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 300px; overflow: auto; }
+  .row { display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; gap: 4px 10px; align-items: center;
+         padding: 7px 6px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+  .row.click { cursor: pointer; }
+  .row.click:hover { background: var(--soft); }
+  .row .sub { grid-column: 2 / -1; color: var(--muted); font-size: 12.5px; }
+  .row.new { animation: flash 1.4s ease-out; }
+  @keyframes flash { from { background: color-mix(in srgb, var(--accent) 16%, transparent); } }
+  .badge { font: 600 11px var(--body); letter-spacing: .03em; padding: 2px 7px; border-radius: 4px; justify-self: start; }
+  .b-block { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+  .b-review { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  .b-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+  .b-idle { color: var(--muted); background: var(--soft); }
+  .right { text-align: right; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  .note { font-size: 12.5px; color: var(--muted); margin: 0; max-width: 90ch; }
+
+  .dev { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 6px; border-radius: 6px; }
+  .dev .n { font-weight: 500; }
+  .dev .s { color: var(--muted); font-size: 12.5px; }
+  .dev .w { font: 12px var(--mono); color: var(--muted); text-align: right; min-width: 58px; }
+  .toggle { width: 42px; height: 24px; border-radius: 99px; border: 1px solid var(--line); background: var(--soft); position: relative; cursor: pointer; padding: 0; }
+  .toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--muted); transition: transform .18s, background .18s; }
+  .toggle[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
+  .toggle[aria-pressed="true"]::after { transform: translateX(18px); background: var(--accent); }
+  .toggle:disabled { opacity: .45; cursor: default; }
+  .full { font-size: 13px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 10px; margin: 0; }
+  .full b { color: var(--ink); font-weight: 600; }
+
+  @media (max-width: 960px) {
+    .stage { grid-template-columns: minmax(0, 1fr); }
+    .c-main { height: 330px; }
+  }
+  @media (max-width: 640px) {
+    .tabs { grid-template-columns: minmax(0, 1fr); }
+    .tab .t-line { display: none; }
+    .cmd form { flex-wrap: wrap; }
+    .cmd input { flex-basis: 100%; }
+    .c-main { height: 290px; }
+    h1 { font-size: 26px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  :root { --accent: var(--pick); }
+  a { color: var(--accent); }
+  code { font-family: var(--mono); font-size: 13px; background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="owner">
+    <h1>PickPath AR</h1>
+    <span class="mono muted">by Akhil Sripada</span>
+    <p>A live fulfillment floor you can talk to. This demo runs entirely in your browser. <a href="https://github.com/akhilsripada/pickpath-ar">Source code</a> · <a href="ar/">AR navigation</a></p>
+  </header>
+  <!-- ===================================================================== PICKPATH -->
+  <section class="proj" id="pickpath" data-p="pickpath">
+    <div class="proj-head">
+      <p>A live map of a fulfillment floor. Ask for any order and get turn-by-turn AR directions to the exact shelf.</p>
+    </div>
+    <div class="chips"><span class="chip">live positions</span><span class="chip">aisle routing</span><span class="chip">congestion detection</span><span class="chip">WebXR navigation</span><span class="chip">ops copilot</span></div>
+
+    <div class="cmd">
+      <form id="pickpath-form" autocomplete="off">
+        <input id="pickpath-input" type="text" placeholder="Ask PickPath, e.g. “Where is order 4417?”" aria-label="Command for PickPath">
+        <button class="btn icon" type="button" id="pickpath-mic" aria-label="Speak a command"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg></button>
+        <button class="btn primary" type="submit">Run</button>
+      </form>
+      <div class="examples"><span class="lbl">Try</span>
+        <button class="ex" data-cmd="pickpath">Where is order 4417?</button>
+        <button class="ex" data-cmd="pickpath">Why are orders late?</button>
+        <button class="ex" data-cmd="pickpath">Reroute pickers</button>
+        <button class="ex" data-cmd="pickpath">Where is robot R2?</button>
+        <button class="ex" data-cmd="pickpath">Order status</button>
+      </div>
+    </div>
+    <div class="reply" id="pickpath-reply" role="status" aria-live="polite"></div>
+
+    <div class="stage">
+      <div class="panel">
+        <h3>Floor map <span class="hint">Aisles A–H, 12 bays each. Dots are pickers, squares are robots.</span></h3>
+        <canvas id="pickpath-map" class="c-main" aria-label="Live warehouse floor map"></canvas>
+        <div class="legend"><span><i style="background:var(--ink)"></i>Picker</span><span><i style="background:var(--wall);border-radius:2px"></i>Robot</span><span><i style="background:var(--pick)"></i>Your route</span><span><i style="background:var(--bad)"></i>Congested aisle</span></div>
+      </div>
+      <div class="side">
+        <div class="panel">
+          <h3>AR view <span class="hint">what your phone camera shows</span></h3>
+          <canvas id="pickpath-ar" class="c-ar" aria-label="Augmented reality navigation preview"></canvas>
+        </div>
+        <div class="panel">
+          <h3>Orders <span class="hint" id="pick-counts"></span></h3>
+          <ul class="list" id="pickpath-orders"></ul>
+        </div>
+      </div>
+    </div>
+    <p class="full"><b>Full build adds:</b> a WebSocket position stream, A* routing on a real floor graph, a phone page that draws these arrows over the live camera with WebXR, and a language model that answers open questions like “what slowed us down this morning?”</p>
+  </section>
+
+  <p class="note">Browser demo with a simplified floor. The full system in the repo runs a congestion-aware A* router, a server-side simulation streamed over SSE, an ops copilot, an MCP server and WebXR navigation. Start it with <code>python run.py</code>.</p>
+</div>
+<script>
+// Plain-English command understanding for the three demos. Pure functions, no DOM.
+// Each returns an intent object; anything unrecognised returns {intent: "unknown"}.
+const NLU = (() => {
+  const norm = (t) => " " + String(t).toLowerCase().replace(/[’']/g, "'").replace(/[^a-z0-9%'\-\s.]/g, " ")
+    .replace(/\s+/g, " ").trim() + " ";
+
+  // ------------------------------------------------------------------ Sentinel
+  const REGION_WORDS = [
+    ["europe", /\b(europe|european|uk|britain|london|paris|berlin|germany|france|romania|russia|moscow)\b/],
+    ["asia", /\b(asia|asian|india|mumbai|hyderabad|japan|tokyo|singapore)\b/],
+    ["africa", /\b(africa|african|nigeria|lagos)\b/],
+    ["oceania", /\b(australia|sydney|oceania)\b/],
+    ["southamerica", /\b(south america|latin america|brazil|sao paulo)\b/],
+    ["northamerica", /\b(north america|usa|us|u\.s\.|america|united states|canada|mexico|states)\b/],
+  ];
+  function attackKind(t) {
+    if (/card.?test|testing|micro|tiny|small charges/.test(t)) return "card_testing";
+    if (/travel|teleport|impossible|location|abroad/.test(t)) return "impossible_travel";
+    if (/spike|large|big|huge|expensive|high amount/.test(t)) return "amount_spike";
+    if (/takeover|\bato\b|hack|log ?in|account|stolen login/.test(t)) return "account_takeover";
+    return null;
+  }
+  function sentinel(text) {
+    const t = norm(text);
+    const user = (t.match(/\bu\d{1,5}\b/) || [])[0] || null;
+    if (/\b(simulate|inject|trigger|launch|start|run|fire|send)\b/.test(t) || /\battack\b/.test(t))
+      return { intent: "attack", kind: attackKind(t) };
+    if (/\b(why|explain|reason|what happened|tell me about)\b/.test(t) || user)
+      return { intent: "explain", user };
+    if (/\b(report|summary|summari[sz]e|today|so far|what changed|overview|how many|stats)\b/.test(t))
+      return { intent: "report" };
+    if (/\b(clear|reset|show all|everything|all regions|whole world|everywhere)\b/.test(t))
+      return { intent: "clear" };
+    for (const [region, re] of REGION_WORDS) if (re.test(t)) return { intent: "region", region };
+    return { intent: "unknown" };
+  }
+
+  // ------------------------------------------------------------------ PickPath
+  function pickpath(text) {
+    const t = norm(text);
+    const order = (t.match(/\b(\d{4})\b/) || [])[1] || null;
+    if (/\b(re-?route|rebalance|fix it|fix that|fix the|move pickers|send pickers|unblock|clear the)\b/.test(t))
+      return { intent: "reroute" };
+    if (order) return { intent: "locate", order };
+    const agent = t.match(/\b(robot|picker|r|p)[ -]?(\d{1,2})\b/);
+    if (agent) return { intent: "agent", kind: agent[1][0] === "r" ? "R" : "P", n: Number(agent[2]) };
+    if (/\b(late|delay|delayed|slow|behind|bottleneck|congest\w*|stuck|jam|why)\b/.test(t))
+      return { intent: "diagnose" };
+    if (/\b(status|summary|how many|orders|overview|report|progress)\b/.test(t))
+      return { intent: "status" };
+    if (/\b(stop|cancel|end) (navigation|guiding|route)\b/.test(t)) return { intent: "stop" };
+    return { intent: "unknown" };
+  }
+
+  // ------------------------------------------------------------------ HomeMind
+  const ROOM_WORDS = [
+    ["living", /\b(living ?room|lounge|family room|living)\b/],
+    ["kitchen", /\b(kitchen)\b/],
+    ["bedroom", /\b(bed ?room|master)\b/],
+    ["office", /\b(office|study|desk)\b/],
+    ["bath", /\b(bath ?room|bath|washroom|restroom)\b/],
+  ];
+  function homemind(text) {
+    const t = norm(text);
+    if (/\b(movie|film|cinema|netflix)\b/.test(t)) return { intent: "scene", scene: "movie" };
+    if (/\b(good ?night|bed ?time|going to sleep|sleep mode)\b/.test(t)) return { intent: "scene", scene: "night" };
+    if (/\b(leaving|away mode|going out|i'm out|im out|heading out)\b/.test(t)) return { intent: "scene", scene: "away" };
+    if (/\b(good morning|wake up|morning)\b/.test(t)) return { intent: "scene", scene: "morning" };
+    if (/\b(power|energy|electric\w*|using the most|watts?|bill|consum\w*|costing)\b/.test(t)) return { intent: "power" };
+
+    const num = (t.match(/\b(\d{1,3})\s*(%|percent|degrees|deg|f)?\b/) || []);
+    const n = num[1] != null ? Number(num[1]) : null;
+    if (/\b(thermostat|temperature|temp|degrees|warmer|cooler|colder|hotter)\b/.test(t)) {
+      if (n != null) return { intent: "thermostat", value: n };
+      if (/warmer|hotter/.test(t)) return { intent: "thermostat", delta: 2 };
+      if (/cooler|colder/.test(t)) return { intent: "thermostat", delta: -2 };
+      return { intent: "thermostat" };
+    }
+
+    let device = null;
+    if (/\b(tv|television|telly)\b/.test(t)) device = "tv";
+    else if (/\bfan\b/.test(t)) device = "fan";
+    else if (/\b(heater|heating)\b/.test(t)) device = "heater";
+    else if (/\b(light|lights|lamp|lamps|bulb)\b/.test(t) || /\b(dim|brighten|brighter|darker)\b/.test(t)) device = "light";
+
+    let room = null;
+    for (const [r, re] of ROOM_WORDS) if (re.test(t)) { room = r; break; }
+    const all = /\b(all|every|everything|whole house|entire house|house)\b/.test(t);
+    if (!device && room) device = "light";
+    if (!device && all && /\b(off|on)\b/.test(t)) device = "everything";
+
+    let action = null, level = null;
+    if (/\b(off|turn off|switch off|shut|kill)\b/.test(t)) action = "off";
+    else if (n != null && device === "light") { action = "level"; level = Math.max(0, Math.min(100, n)); }
+    else if (/\b(brighten|brighter|full|max|maximum)\b/.test(t)) { action = "level"; level = 100; }
+    else if (/\b(dim|darker|lower)\b/.test(t)) { action = "level"; level = 30; }
+    else if (/\b(on|turn on|switch on|start|open)\b/.test(t)) action = "on";
+
+    if (device && action) return { intent: "device", device, room, all, action, level };
+    if (device) return { intent: "device", device, room, all, action: "toggle", level };
+    return { intent: "unknown" };
+  }
+
+  return { sentinel, pickpath, homemind, norm };
+})();
+
+// ===================================================================== shared
+const $ = (s) => document.querySelector(s);
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const D2R = Math.PI / 180;
+let PAL = {};
+function readPal() {
+  const s = getComputedStyle(document.documentElement);
+  const g = (n) => s.getPropertyValue(n).trim();
+  PAL = {};
+  ["bg", "panel", "ink", "muted", "line", "soft", "sentinel", "pick", "home", "ok", "warn", "bad", "land", "land-edge",
+   "globe", "grid", "floor", "rack", "wall", "glow", "cam", "cam-ink", "cam-line", "mono", "body", "display"]
+    .forEach((k) => { PAL[k] = g("--" + k); });
+}
+readPal();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", readPal);
+new MutationObserver(readPal).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+function rgba(hex, a) {
+  let m = String(hex).replace("#", "").trim();
+  if (m.length === 3) m = m.split("").map((c) => c + c).join("");
+  const n = parseInt(m, 16);
+  if (Number.isNaN(n)) return `rgba(128,128,128,${a})`;
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+function fit(c) {
+  const d = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== Math.round(w * d) || c.height !== Math.round(h * d)) { c.width = Math.round(w * d); c.height = Math.round(h * d); }
+  const x = c.getContext("2d");
+  x.setTransform(d, 0, 0, d, 0, 0);
+  x.clearRect(0, 0, w, h);
+  return [x, w, h];
+}
+function mulberry32(a) {
+  return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const money = (x) => "$" + Number(x).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const int = (x) => Math.round(x).toLocaleString("en-US");
+const hav = (la1, lo1, la2, lo2) => {
+  const p1 = la1 * D2R, p2 = la2 * D2R, dp = p2 - p1, dl = (lo2 - lo1) * D2R;
+  const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(a));
+};
+const clock = (sec) => new Date(sec * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+// Wire a command bar: form submit, example chips, mic. handler(text) -> {html, meta?, after?(el)}
+function wireCommand(id, handler) {
+  const form = $("#" + id + "-form"), input = $("#" + id + "-input"), reply = $("#" + id + "-reply"), mic = $("#" + id + "-mic");
+  function show(text, out, ms) {
+    reply.innerHTML = (text ? `<div class="you"><b>You:</b> ${esc(text)}</div>` : "") +
+      `<div class="ans">${out.html}</div>` +
+      (ms != null ? `<div class="meta">Understood and applied in ${ms < 0.01 ? "under 0.01" : ms < 1 ? ms.toFixed(2) : ms.toFixed(1)} ms${out.meta ? " · " + out.meta : ""}</div>` : "");
+    reply.classList.remove("pop"); void reply.offsetWidth; reply.classList.add("pop");
+    if (out.after) out.after(reply);
+  }
+  function run(text) {
+    const t0 = performance.now();
+    let out;
+    try { out = handler(text); } catch (err) { out = { html: `<p>That command hit an error: ${esc(err.message)}</p>` }; }
+    show(text, out, performance.now() - t0);
+  }
+  form.addEventListener("submit", (e) => { e.preventDefault(); const t = input.value.trim(); if (t) run(t); });
+  document.querySelectorAll(`[data-cmd="${id}"]`).forEach((b) => b.addEventListener("click", () => {
+    input.value = b.textContent.trim(); run(input.value);
+  }));
+  mic.addEventListener("click", () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const say = (msg) => show("", { html: `<p>${esc(msg)}</p>` });
+    if (!SR) { say("Voice input isn't available in this browser. Type the command instead."); return; }
+    try {
+      const r = new SR();
+      r.lang = "en-US"; r.interimResults = false; r.maxAlternatives = 1;
+      r.onresult = (e) => { const t = e.results[0][0].transcript; input.value = t; run(t); };
+      r.onerror = (e) => say(e.error === "not-allowed" || e.error === "service-not-allowed"
+        ? "Microphone access is blocked on this page. Type the command instead."
+        : "Voice input stopped before it heard a command. Try again, or type it.");
+      r.start();
+      say("Listening… say a command.");
+    } catch (err) { say("Voice input isn't available here. Type the command instead."); }
+  });
+  return { run, show, input };
+}
+
+let active = 'pickpath';
+// ===================================================================== PICKPATH AR
+const Pick = (() => {
+  const L = "ABCDEFGH".split("");
+  const W = 64, H = 42, TOP = 4, BOT = 32, BAY0 = 7, BAYH = 2, NBAY = 12, SIM = 2.2;
+  const AX = (i) => 7 + i * 7;                      // aisle centre lines, metres
+  const bayY = (b) => BAY0 + (b - 0.5) * BAYH;      // bay 1..12
+  const DOCK = { x: 32, y: 37.5 };
+  const F = 5;                                       // aisle F is where congestion starts
+  const rand = mulberry32(4417);
+  let hot = true;
+
+  function route(from, to) {
+    const inAisle = (p) => p.y > BAY0 - 0.5 && p.y < BAY0 + NBAY * BAYH + 0.5;
+    if (Math.abs(from.x - to.x) < 0.3 && inAisle(from) && inAisle(to)) return [from, to];
+    let c;
+    if (from.y > BOT || to.y > BOT) c = BOT;
+    else c = (Math.abs(from.y - TOP) + Math.abs(to.y - TOP)) < (Math.abs(from.y - BOT) + Math.abs(to.y - BOT)) ? TOP : BOT;
+    const pts = [from, { x: from.x, y: c }, { x: to.x, y: c }, to];
+    return pts.filter((p, i) => i === 0 || Math.hypot(p.x - pts[i - 1].x, p.y - pts[i - 1].y) > 0.05);
+  }
+  const aisleOf = (x) => { const i = Math.round((x - 7) / 7); return i >= 0 && i < 8 && Math.abs(x - AX(i)) < 0.9 ? i : -1; };
+  const bayOf = (y) => Math.max(1, Math.min(NBAY, Math.floor((y - BAY0) / BAYH) + 1));
+  const inRacks = (y) => y > BAY0 && y < BAY0 + NBAY * BAYH;
+
+  // ------------------------------------------------------------------ agents
+  const agents = [];
+  for (let i = 0; i < 7; i++) agents.push({ id: "P" + (i + 1), kind: "P", speed: 1.3 });
+  for (let i = 0; i < 3; i++) agents.push({ id: "R" + (i + 1), kind: "R", speed: 1.8 });
+  function chooseAisle(a) {
+    if (hot && a.kind === "P" && rand() < 0.55) return F;
+    let i; do { i = Math.floor(rand() * 8); } while (!hot && i === F && rand() < 0.6);
+    return i;
+  }
+  function target(a, aisle) {
+    const ai = aisle ?? chooseAisle(a), b = 1 + Math.floor(rand() * NBAY);
+    a.path = route({ x: a.x, y: a.y }, { x: AX(ai), y: bayY(b) }); a.seg = 1; a.wait = 0;
+  }
+  agents.forEach((a, i) => {
+    const ai = i < 4 ? F : Math.floor(rand() * 8);
+    a.x = AX(ai); a.y = bayY(1 + Math.floor(rand() * NBAY)); a.wait = rand() * 3; a.path = [];
+  });
+  const countIn = (ai) => agents.filter((a) => aisleOf(a.x) === ai && inRacks(a.y)).length;
+
+  // ------------------------------------------------------------------ orders
+  const ITEMS = ["Yoga mat", "Espresso beans", "Desk lamp", "Phone case", "Water bottle", "Running socks", "Board game",
+    "USB-C hub", "Bluetooth speaker", "Notebook set", "HDMI cable", "Air fryer liners"];
+  const orders = ITEMS.map((item, i) => ({ id: String(4410 + i), item, aisle: i === 7 ? 2 : Math.floor(rand() * 8),
+    bay: i === 7 ? 12 : 1 + Math.floor(rand() * NBAY), level: i === 7 ? 3 : 1 + Math.floor(rand() * 4),
+    side: rand() < 0.5 ? "left" : "right", status: ["Picking", "Packing", "Queued", "Shipped"][i % 4] }));
+  [0, 3, 9].forEach((k) => { orders[k].aisle = F; orders[k].status = "Late"; });
+  orders[7].status = "Picking"; orders[7].side = "right";   // #4417, the walkthrough example
+  orders[5].aisle = F;
+
+  // ------------------------------------------------------------------ navigation state
+  let nav = null;          // {order, path, len, walked, steps}
+  let highlight = null;    // {id, until}
+  function startNav(o) {
+    const goal = { x: AX(o.aisle), y: bayY(o.bay) };
+    const path = route({ ...DOCK }, goal);
+    const segs = [];
+    for (let i = 1; i < path.length; i++) segs.push({ a: path[i - 1], b: path[i], len: Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y) });
+    const steps = segs.map((s, i) => {
+      let turn = "arrive";
+      if (i < segs.length - 1) {
+        const h1 = { x: (s.b.x - s.a.x) / s.len, y: (s.b.y - s.a.y) / s.len }, n = segs[i + 1];
+        const h2 = { x: (n.b.x - n.a.x) / n.len, y: (n.b.y - n.a.y) / n.len };
+        const cross = h1.x * h2.y - h1.y * h2.x;
+        turn = Math.abs(cross) < 0.2 ? "straight" : cross > 0 ? "right" : "left";
+      }
+      return { ...s, turn };
+    });
+    nav = { order: o, path, steps, len: segs.reduce((t, s) => t + s.len, 0), walked: 0 };
+  }
+  function navPos() {
+    let d = nav.walked;
+    for (let i = 0; i < nav.steps.length; i++) {
+      const s = nav.steps[i];
+      if (d <= s.len || i === nav.steps.length - 1) {
+        const t = Math.min(1, d / s.len);
+        return { i, left: s.len - Math.min(d, s.len), x: s.a.x + (s.b.x - s.a.x) * t, y: s.a.y + (s.b.y - s.a.y) * t };
+      }
+      d -= s.len;
+    }
+  }
+
+  // ------------------------------------------------------------------ update + draw map
+  const map = $("#pickpath-map"), ar = $("#pickpath-ar");
+  let last = 0, lateTimer = 0, ordersDirty = true;
+  function update(dt) {
+    const crowd = countIn(F) >= 3;
+    for (const a of agents) {
+      if (a.wait > 0) { a.wait -= dt; if (a.wait <= 0) target(a); continue; }
+      if (!a.path.length) { a.wait = 1; continue; }
+      const t = a.path[a.seg];
+      if (!t) { a.wait = 2 + rand() * 3; a.path = []; continue; }
+      const slow = crowd && aisleOf(a.x) === F && inRacks(a.y) ? 0.35 : 1;
+      const dx = t.x - a.x, dy = t.y - a.y, d = Math.hypot(dx, dy), step = a.speed * SIM * dt * slow;
+      if (step >= d) { a.x = t.x; a.y = t.y; a.seg++; } else { a.x += dx / d * step; a.y += dy / d * step; }
+    }
+    if (nav && nav.walked < nav.len) nav.walked = Math.min(nav.len, nav.walked + 1.4 * SIM * dt);
+    if (!hot) {
+      lateTimer += dt;
+      if (lateTimer > 3.5) {
+        lateTimer = 0;
+        const o = orders.find((x) => x.status === "Late") || orders.find((x) => x.status === "Picking");
+        if (o) { o.status = o.status === "Late" ? "Picking" : "Packing"; ordersDirty = true; }
+      }
+    }
+  }
+  function drawMap() {
+    const [x, w, h] = fit(map);
+    const s = Math.min(w / W, h / H), ox = (w - W * s) / 2, oy = (h - H * s) / 2;
+    const X = (v) => ox + v * s, Y = (v) => oy + v * s;
+    x.fillStyle = PAL.floor; x.fillRect(X(0), Y(0), W * s, H * s);
+    x.strokeStyle = PAL.line; x.lineWidth = 1; x.strokeRect(X(0) + .5, Y(0) + .5, W * s - 1, H * s - 1);
+    // congestion
+    const crowd = countIn(F) >= 3;
+    if (crowd) { x.fillStyle = rgba(PAL.bad, 0.16); x.fillRect(X(AX(F) - 2.4), Y(BAY0), 4.8 * s, NBAY * BAYH * s); }
+    // racks
+    for (let k = 0; k <= 8; k++) {
+      const cx = 3.5 + 7 * k;
+      x.fillStyle = PAL.rack; x.fillRect(X(cx - 1.2), Y(BAY0), 2.4 * s, NBAY * BAYH * s);
+      x.strokeStyle = PAL.floor;
+      for (let b = 1; b < NBAY; b++) { x.beginPath(); x.moveTo(X(cx - 1.2), Y(BAY0 + b * BAYH)); x.lineTo(X(cx + 1.2), Y(BAY0 + b * BAYH)); x.stroke(); }
+    }
+    x.fillStyle = PAL.muted; x.font = `600 ${Math.max(10, s * 1.5)}px ${PAL.mono}`; x.textAlign = "center"; x.textBaseline = "middle";
+    L.forEach((l, i) => x.fillText(l, X(AX(i)), Y(TOP - 1.6)));
+    if (crowd) { x.fillStyle = PAL.bad; x.font = `600 ${Math.max(9, s * 1.1)}px ${PAL.body}`; x.fillText("congested", X(AX(F)), Y(BAY0 + NBAY * BAYH + 1.2)); }
+    // dock
+    x.fillStyle = PAL.soft; x.fillRect(X(2), Y(34.5), 60 * s, 6 * s);
+    x.fillStyle = PAL.muted; x.font = `${Math.max(10, s * 1.2)}px ${PAL.body}`; x.textAlign = "left";
+    x.fillText("Packing and dock", X(3), Y(37.5));
+    for (let k = 0; k < 6; k++) { x.fillStyle = PAL.rack; x.fillRect(X(40 + k * 3.6), Y(36), 2.6 * s, 3 * s); }
+    // route
+    const now = performance.now();
+    if (nav) {
+      x.strokeStyle = PAL.pick; x.lineWidth = Math.max(2.5, s * 0.45); x.setLineDash([s * 1.2, s * 0.8]);
+      x.lineDashOffset = reduceMotion ? 0 : -now / 60;
+      x.beginPath(); nav.path.forEach((p, i) => (i ? x.lineTo(X(p.x), Y(p.y)) : x.moveTo(X(p.x), Y(p.y)))); x.stroke();
+      x.setLineDash([]);
+      const g = nav.path[nav.path.length - 1], k = reduceMotion ? 0 : (now % 1400) / 1400;
+      x.strokeStyle = rgba(PAL.pick, 1 - k); x.lineWidth = 2; x.beginPath(); x.arc(X(g.x), Y(g.y), s * (0.8 + k * 2.2), 0, 7); x.stroke();
+    }
+    // agents
+    for (const a of agents) {
+      const hl = highlight && highlight.id === a.id && now < highlight.until;
+      if (a.kind === "P") { x.fillStyle = PAL.ink; x.beginPath(); x.arc(X(a.x), Y(a.y), Math.max(3.5, s * 0.6), 0, 7); x.fill(); }
+      else { x.fillStyle = PAL.wall; const r = Math.max(3.5, s * 0.6); x.fillRect(X(a.x) - r, Y(a.y) - r, r * 2, r * 2); }
+      if (hl) { x.strokeStyle = PAL.pick; x.lineWidth = 2.5; x.beginPath(); x.arc(X(a.x), Y(a.y), s * 1.6, 0, 7); x.stroke(); }
+      if (s > 7 || hl) { x.fillStyle = hl ? PAL.pick : PAL.muted; x.font = `600 ${Math.max(9, s * 0.95)}px ${PAL.mono}`; x.textAlign = "left"; x.fillText(a.id, X(a.x) + s * 0.9, Y(a.y) - s * 0.7); }
+    }
+    // you
+    const me = nav ? navPos() : DOCK;
+    x.fillStyle = PAL.pick; x.beginPath(); x.arc(X(me.x), Y(me.y), Math.max(4.5, s * 0.75), 0, 7); x.fill();
+    x.strokeStyle = PAL.panel; x.lineWidth = 2; x.stroke();
+    x.fillStyle = PAL.pick; x.font = `600 ${Math.max(10, s * 1.1)}px ${PAL.body}`; x.textAlign = "left"; x.fillText("You", X(me.x) + s * 1.1, Y(me.y) + s * 0.1);
+  }
+
+  // ------------------------------------------------------------------ AR camera view
+  function drawAR(t) {
+    const [x, w, h] = fit(ar);
+    x.fillStyle = PAL.cam; x.fillRect(0, 0, w, h);
+    const hz = h * 0.4, cx = w / 2;
+    const sc = (z) => 2.2 / (z + 2.2);                                 // perspective scale for depth z metres
+    const fy = (z) => hz + (h - hz) * sc(z), hw = (z) => w * 0.62 * sc(z);
+    // floor grid
+    x.strokeStyle = PAL["cam-line"]; x.lineWidth = 1;
+    for (let k = -4; k <= 4; k++) { x.beginPath(); x.moveTo(cx + k * w * 0.18, h); x.lineTo(cx + k * 3, hz); x.stroke(); }
+    const walked = nav ? nav.walked : 0;
+    for (let z = 0; z < 30; z += 2) { const zz = z - (walked % 2); if (zz < 0) continue; x.beginPath(); x.moveTo(cx - hw(zz) * 1.6, fy(zz)); x.lineTo(cx + hw(zz) * 1.6, fy(zz)); x.stroke(); }
+    // racks either side
+    for (const side of [-1, 1]) {
+      x.fillStyle = rgba(PAL["cam-ink"], 0.07);
+      x.beginPath(); x.moveTo(cx + side * hw(0), fy(0)); x.lineTo(cx + side * hw(0), fy(0) - h * 0.95);
+      x.lineTo(cx + side * hw(30), fy(30) - h * 0.95 * sc(30)); x.lineTo(cx + side * hw(30), fy(30)); x.closePath(); x.fill();
+      x.strokeStyle = rgba(PAL["cam-ink"], 0.14);
+      for (let lv = 1; lv <= 3; lv++) { x.beginPath(); x.moveTo(cx + side * hw(0), fy(0) - h * 0.24 * lv); x.lineTo(cx + side * hw(30), fy(30) - h * 0.24 * lv * sc(30)); x.stroke(); }
+    }
+    x.font = `600 13px ${PAL.body}`; x.textBaseline = "middle";
+    if (!nav) {
+      x.fillStyle = PAL["cam-ink"]; x.textAlign = "center";
+      x.fillText("Ask “Where is order 4417?” to start", cx, h * 0.22);
+      x.fillStyle = rgba(PAL["cam-ink"], 0.6); x.font = `12px ${PAL.body}`; x.fillText("Directions appear here, drawn over the camera", cx, h * 0.22 + 20);
+      return;
+    }
+    const pos = navPos(), step = nav.steps[pos.i], done = nav.walked >= nav.len - 0.01;
+    // chevrons along the floor
+    if (!done) {
+      for (let k = 0; k < 7; k++) {
+        const z = ((k * 2.2 - (reduceMotion ? 0 : (t / 380) % 2.2)) + 15.4) % 15.4 + 0.6;
+        if (z > pos.left + 0.5) continue;
+        const y = fy(z), size = 26 * sc(z), a = Math.min(1, 1.2 - z / 16);
+        x.strokeStyle = rgba(PAL.pick, a); x.lineWidth = Math.max(2, 7 * sc(z)); x.lineCap = "round"; x.lineJoin = "round";
+        x.beginPath(); x.moveTo(cx - size, y + size * 0.35); x.lineTo(cx, y - size * 0.35); x.lineTo(cx + size, y + size * 0.35); x.stroke();
+      }
+      if (step.turn !== "straight" && step.turn !== "arrive" && pos.left < 9) {
+        const z = Math.max(0.8, pos.left), y = fy(z) - 30 * sc(z), dir = step.turn === "right" ? 1 : -1, size = 46 * sc(z) + 10;
+        x.fillStyle = PAL.pick;
+        x.beginPath(); x.moveTo(cx + dir * size * 1.2, y); x.lineTo(cx + dir * size * 0.2, y - size * 0.6); x.lineTo(cx + dir * size * 0.2, y - size * 0.22);
+        x.lineTo(cx - dir * size * 0.8, y - size * 0.22); x.lineTo(cx - dir * size * 0.8, y + size * 0.22); x.lineTo(cx + dir * size * 0.2, y + size * 0.22);
+        x.lineTo(cx + dir * size * 0.2, y + size * 0.6); x.closePath(); x.fill();
+      }
+    } else {
+      const side = nav.order.side === "right" ? 1 : -1, bx = cx + side * w * 0.3, by = h * 0.62 - nav.order.level * h * 0.1;
+      const k = reduceMotion ? 0 : (t % 1200) / 1200;
+      x.strokeStyle = PAL.pick; x.lineWidth = 3; x.strokeRect(bx - 34, by - 18, 68, 36);
+      x.strokeStyle = rgba(PAL.pick, 1 - k); x.strokeRect(bx - 34 - k * 10, by - 18 - k * 10, 68 + k * 20, 36 + k * 20);
+      x.fillStyle = PAL.pick; x.textAlign = "center"; x.font = `600 12px ${PAL.mono}`; x.fillText(`${L[nav.order.aisle]}-${nav.order.bay} · L${nav.order.level}`, bx, by);
+    }
+    // HUD
+    const o = nav.order;
+    x.fillStyle = rgba(PAL.cam, 0.78); x.fillRect(10, 10, Math.min(w - 20, 270), 44);
+    x.fillStyle = PAL["cam-ink"]; x.textAlign = "left"; x.font = `600 13px ${PAL.body}`;
+    x.fillText(`Order ${o.id} · ${o.item}`, 20, 25);
+    x.fillStyle = rgba(PAL["cam-ink"], 0.7); x.font = `12px ${PAL.mono}`;
+    x.fillText(`Aisle ${L[o.aisle]} · bay ${o.bay} · level ${o.level}`, 20, 42);
+    const msg = done ? `You're here. It's on your ${o.side}, level ${o.level}.`
+      : step.turn === "arrive" ? `Bay ${L[o.aisle]}-${o.bay} in ${Math.ceil(pos.left)} m, on your ${o.side}`
+      : step.turn === "straight" ? `Continue ${Math.ceil(pos.left)} m`
+      : `Turn ${step.turn} in ${Math.ceil(pos.left)} m${pos.i === nav.steps.length - 2 ? ` into aisle ${L[o.aisle]}` : ""}`;
+    x.fillStyle = rgba(PAL.cam, 0.82); x.fillRect(10, h - 46, w - 20, 36);
+    x.fillStyle = done ? PAL.pick : PAL["cam-ink"]; x.font = `600 14px ${PAL.body}`; x.fillText(msg, 20, h - 28);
+    x.fillStyle = rgba(PAL["cam-ink"], 0.18); x.fillRect(10, h - 10, w - 20, 3);
+    x.fillStyle = PAL.pick; x.fillRect(10, h - 10, (w - 20) * nav.walked / nav.len, 3);
+    x.fillStyle = rgba(PAL["cam-ink"], 0.55); x.textAlign = "right"; x.font = `11px ${PAL.mono}`;
+    x.fillText(`${Math.ceil(nav.len - nav.walked)} m left`, w - 16, 25);
+  }
+
+  // ------------------------------------------------------------------ orders list
+  const ordersEl = $("#pickpath-orders");
+  const BADGE = { Late: "b-block", Picking: "b-review", Packing: "b-ok", Queued: "b-idle", Shipped: "b-idle" };
+  function renderOrders() {
+    ordersDirty = false;
+    const c = {}; orders.forEach((o) => { c[o.status] = (c[o.status] || 0) + 1; });
+    $("#pick-counts").textContent = ["Late", "Picking", "Packing", "Shipped"].map((k) => `${c[k] || 0} ${k.toLowerCase()}`).join(" · ");
+    const order = { Late: 0, Picking: 1, Queued: 2, Packing: 3, Shipped: 4 };
+    ordersEl.innerHTML = [...orders].sort((a, b) => order[a.status] - order[b.status]).map((o) => `
+      <li class="row click" data-order="${o.id}" tabindex="0"><span class="badge ${BADGE[o.status]}">${o.status}</span>
+      <span>#${o.id} · ${esc(o.item)}</span><span class="mono muted">${L[o.aisle]}-${o.bay}</span></li>`).join("");
+  }
+  ordersEl.addEventListener("click", (e) => { const li = e.target.closest("[data-order]"); if (li && runner) { runner.input.value = `Where is order ${li.dataset.order}?`; runner.run(runner.input.value); } });
+  ordersEl.addEventListener("keydown", (e) => { if (e.key === "Enter") e.target.click(); });
+
+  function draw(t) {
+    const dt = Math.min(0.05, (t - last) / 1000 || 0); last = t;
+    update(dt);
+    drawMap(); drawAR(t);
+    if (ordersDirty) renderOrders();
+  }
+  // keep the floor moving in the background too
+  setInterval(() => { if (document.hidden) return; if (!active || active !== "pickpath") update(0.25); }, 250);
+
+  // ------------------------------------------------------------------ commands
+  let runner = null;
+  function handle(text) {
+    const it = NLU.pickpath(text);
+    if (it.intent === "locate") {
+      const o = orders.find((x) => x.id === it.order);
+      if (!o) return { html: `<p>There's no order ${esc(it.order)} on this floor. Open orders run from #4410 to #4421.</p>` };
+      if (o.status === "Shipped") return { html: `<p>Order ${o.id} (${esc(o.item)}) already shipped. It was picked from aisle ${L[o.aisle]}, bay ${o.bay}.</p>` };
+      startNav(o);
+      const turns = nav.steps.filter((s) => s.turn === "left" || s.turn === "right").length;
+      return { html: `<p><b>Order ${o.id}, ${esc(o.item)}:</b> aisle ${L[o.aisle]}, bay ${o.bay}, level ${o.level}, on your ${o.side}.</p>
+        <p>Route from the packing area: ${Math.round(nav.len)} m with ${turns} turn${turns === 1 ? "" : "s"}, about ${Math.round(nav.len / 1.4)} seconds on foot. The AR view is guiding you now.</p>`,
+        meta: "route planned on the aisle graph" };
+    }
+    if (it.intent === "diagnose") {
+      const n = countIn(F), late = orders.filter((o) => o.status === "Late");
+      if (n < 3 || !hot) return { html: `<p>Nothing is congested right now. ${late.length ? `${late.length} order${late.length > 1 ? "s are" : " is"} still catching up after the reroute.` : "All orders are on time."}</p>` };
+      const inF = agents.filter((a) => a.kind === "P" && aisleOf(a.x) === F && inRacks(a.y)).map((a) => a.id);
+      return { html: `<p><b>Aisle F is the bottleneck.</b> ${n} workers are in an aisle that fits two, so each pick there takes about 2.9× longer.</p>
+        <ul><li>${late.filter((o) => o.aisle === F).length} of the ${late.length} late orders are waiting on stock in aisle F.</li>
+        <li>Pickers in F right now: ${esc(inF.join(", "))}.</li><li>Aisle G holds overflow stock for the same items.</li></ul>
+        <p>Say “reroute pickers” and I'll send some of them to aisle G.</p>`, meta: "diagnosis from live positions and order data" };
+    }
+    if (it.intent === "reroute") {
+      if (!hot) return { html: "<p>Pickers are already spread out. Aisle F is clear.</p>" };
+      hot = false;
+      const moved = [];
+      agents.filter((a) => aisleOf(a.x) === F && inRacks(a.y)).slice(1).forEach((a, i) => { target(a, i % 2 ? 4 : 6); moved.push(a.id); });
+      return { html: `<p><b>Done.</b> Sent ${esc(moved.join(", "))} to aisles E and G. Aisle F is down to one worker, and late orders will clear over the next minute.</p>`, meta: "new tasks pushed to pickers' handhelds" };
+    }
+    if (it.intent === "agent") {
+      const a = agents.find((x) => x.kind === it.kind && Number(x.id.slice(1)) === it.n);
+      if (!a) return { html: `<p>There's no ${it.kind === "R" ? "robot R" : "picker P"}${it.n}. This shift has pickers P1–P7 and robots R1–R3.</p>` };
+      highlight = { id: a.id, until: performance.now() + 8000 };
+      const ai = aisleOf(a.x);
+      const where = ai >= 0 && inRacks(a.y) ? `in aisle ${L[ai]} at bay ${bayOf(a.y)}` : a.y > BOT ? "near the packing area" : "in the main cross aisle";
+      return { html: `<p>${a.kind === "R" ? "Robot" : "Picker"} ${a.id} is ${where}, ${a.wait > 0 ? "picking right now" : "on the move"}. It's circled on the map.</p>` };
+    }
+    if (it.intent === "status") {
+      const c = {}; orders.forEach((o) => { c[o.status] = (c[o.status] || 0) + 1; });
+      return { html: `<p><b>${orders.length} orders on this wave:</b> ${c.Late || 0} late, ${c.Picking || 0} picking, ${c.Queued || 0} queued, ${c.Packing || 0} packing and ${c.Shipped || 0} shipped.</p>${c.Late ? `<p>Ask “why are orders late?” to see what's holding them up.</p>` : ""}` };
+    }
+    if (it.intent === "stop") { nav = null; return { html: "<p>Navigation stopped.</p>" }; }
+    return { html: `<p>I didn't catch that. PickPath understands requests like these:</p><ul><li>“Where is order 4413?”</li><li>“Why are orders late?”</li><li>“Reroute pickers”</li><li>“Where is picker P3?”</li></ul>` };
+  }
+  return { draw, start() { runner = wireCommand("pickpath", handle); runner.input.value = "Why are orders late?"; runner.run(runner.input.value); } };
+})();
+
+// ===================================================================== boot
+Pick.start();
+(function loop(t) { Pick.draw(t); requestAnimationFrame(loop); })(0);
+</script>
+</body>
+</html>
